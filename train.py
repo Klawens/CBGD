@@ -85,6 +85,9 @@ def train(modelConfig: Dict):
         unet_model, modelConfig["beta_1"], modelConfig["beta_T"], modelConfig["T"]).to(device)
     reconstructor = GaussianDiffusionSampler(
         unet_model, modelConfig["beta_1"], modelConfig["beta_T"], modelConfig["T"]).to(device)
+    compile_trainer = torch.compile(trainer)
+    # compile_rec = torch.compile(reconstructor)
+    compile_decom = torch.compile(decom_model)
     
     # print model parameters
     model_size = 0
@@ -112,8 +115,8 @@ def train(modelConfig: Dict):
                 x_l = low_images.to(device)
 
                 # decomposite
-                ref_high, illum_high = decom_model(x_h) # shape: batch, 3(1), h, w
-                ref_low, illum_low = decom_model(x_l)
+                ref_high, illum_high = compile_decom(x_h) # shape: batch, 3(1), h, w
+                ref_low, illum_low = compile_decom(x_l)
                 cv2.imwrite('ref_high.jpg', ref_high.permute(0,2,3,1).detach().cpu().numpy()[0, :, :, :]*255)
                 cv2.imwrite('ref_low.jpg', ref_low.permute(0,2,3,1).detach().cpu().numpy()[0, :, :, :]*255)
                 cv2.imwrite('illum_high.jpg', illum_high.permute(0,2,3,1).detach().cpu().numpy()[0, :, :, :]*255)
@@ -127,13 +130,18 @@ def train(modelConfig: Dict):
                 Thus "/1000." makes the gradient desent faster and stable.
                 '''
                 # diffusion loss is the MSE loss between the predicted noise and the sampled noise
-                diff_loss, x_th, pred_noise = trainer(illum_high.repeat(1, 3, 1, 1), idx, high=True)
+                # using torch 2.0 compile booster
+                diff_loss, x_th, pred_noise = compile_trainer(illum_high.repeat(1, 3, 1, 1), idx, high=True)
+                # diff_loss, x_th, pred_noise = trainer(illum_high.repeat(1, 3, 1, 1), idx, high=True)
                 diff_loss = diff_loss.sum() / 1000. # Gradient Scaling
 
                 save_image(x_th, os.path.join(
                 './middle/diffused/', 'diff.jpg'), nrow=modelConfig["nrow"])
 
                 # reconstruction loss
+                # rec = reconstructor(x_th)
+                # using torch 2.0 compile booster
+                
                 rec = reconstructor(x_th)
                 save_image(rec, os.path.join(
                     modelConfig["sampled_dir"], modelConfig["sampledImgName"]), nrow=modelConfig["nrow"])
