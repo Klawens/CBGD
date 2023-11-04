@@ -1,4 +1,3 @@
-import glob
 import os
 from typing import Dict
 
@@ -16,16 +15,13 @@ from model.diffusion import GaussianDiffusionSampler, GaussianDiffusionTrainer
 from model.unet import UNet
 from utils.scheduler import GradualWarmupScheduler
 from utils.dataset import CustomDataset
-import copy
-from PIL import Image
-import cv2
 
 
 def train(modelConfig: Dict):
     device = torch.device(modelConfig["device"])
     # load dataset
     dataset_high = CustomDataset(
-        root_dir='/home/klawens/LOL/LOL/our485/high',
+        root_dir=modelConfig["data_dir"]+'high',
         transform=transforms.Compose([
             # transforms.RandomHorizontalFlip(),
             transforms.Resize([modelConfig["img_size"], modelConfig["img_size"]]),
@@ -34,7 +30,7 @@ def train(modelConfig: Dict):
             ])
         )
     dataset_low = CustomDataset(
-        root_dir='/home/klawens/LOL/LOL/our485/low',
+        root_dir=modelConfig["data_dir"]+'low',
         transform=transforms.Compose([
             # transforms.RandomHorizontalFlip(),
             transforms.Resize([modelConfig["img_size"], modelConfig["img_size"]]),
@@ -53,12 +49,16 @@ def train(modelConfig: Dict):
     
     # DecomNet model setup  
     decom_model = DecomNet().to(device)
-    if modelConfig["decomp_weight"] is not None:
+    if modelConfig["pretrained"]:
         decom_model.load_state_dict(torch.load(os.path.join(
-            modelConfig["pretrained_weight_dir"], modelConfig["decomp_weight"]), map_location=device))
-        print('decomposition model weights loaded.')
+            modelConfig["pretrained_weight_dir"], modelConfig["decom_pre"]), map_location=device))
+        print('Pretrained decomposition model weights loaded, start fine-tuning...')
+    elif modelConfig["resume"]:
+        decom_model.load_state_dict(torch.load(os.path.join(
+            modelConfig["save_weight_dir"], modelConfig["decomp_weight"]), map_location=device))
+        print('Decomposition model weights loaded, resume training...')
     else:
-        print('No decomposition model weights loaded.')
+        print('No decomposition model weights loaded, start training...')
     optimizer_decom = torch.optim.AdamW(
         decom_model.parameters(), lr=modelConfig["lr"], weight_decay=1e-4)
     cosineScheduler = optim.lr_scheduler.CosineAnnealingLR(
@@ -69,12 +69,17 @@ def train(modelConfig: Dict):
     # Unet model setup
     unet_model = UNet(T=modelConfig["T"], ch=modelConfig["channel"], ch_mult=modelConfig["channel_mult"], attn=modelConfig["attn"],
                      num_res_blocks=modelConfig["num_res_blocks"], dropout=modelConfig["dropout"]).to(device)
-    if modelConfig["training_load_weight"] is not None:
-        unet_model.load_state_dict(torch.load(os.path.join(
-            modelConfig["pretrained_weight_dir"], modelConfig["training_load_weight"]), map_location=device))
-        print('diffusion model weights loaded.')
+
+    if modelConfig["pretrained"]:
+        decom_model.load_state_dict(torch.load(os.path.join(
+            modelConfig["pretrained_weight_dir"], modelConfig["diff_pre"]), map_location=device))
+        print('Pretrained diffusion model weights loaded, start fine-tuning...')
+    elif modelConfig["resume"]:
+        decom_model.load_state_dict(torch.load(os.path.join(
+            modelConfig["save_weight_dir"], modelConfig["training_load_weight"]), map_location=device))
+        print('Diffusion model weights loaded, resume training...')
     else:
-        print('No diffusion model weights loaded.')
+        print('No diffusion model weights loaded, start training...')
     optimizer = torch.optim.AdamW(
         unet_model.parameters(), lr=modelConfig["lr"], weight_decay=1e-4)
     cosineScheduler = optim.lr_scheduler.CosineAnnealingLR(
@@ -85,8 +90,8 @@ def train(modelConfig: Dict):
         unet_model, modelConfig["beta_1"], modelConfig["beta_T"], modelConfig["T"]).to(device)
     reconstructor = GaussianDiffusionSampler(
         unet_model, modelConfig["beta_1"], modelConfig["beta_T"], modelConfig["T"]).to(device)
+    # torch 2.0 compile booster
     compile_trainer = torch.compile(trainer)
-    # compile_rec = torch.compile(reconstructor)
     compile_decom = torch.compile(decom_model)
     
     # print model parameters
@@ -113,45 +118,56 @@ def train(modelConfig: Dict):
                 # original high/low images, worked
                 x_h = high_images.to(device)
                 x_l = low_images.to(device)
-
                 # decomposite
                 ref_high, illum_high = compile_decom(x_h) # shape: batch, 3(1), h, w
                 ref_low, illum_low = compile_decom(x_l)
-                cv2.imwrite('ref_high.jpg', ref_high.permute(0,2,3,1).detach().cpu().numpy()[0, :, :, :]*255)
-                cv2.imwrite('ref_low.jpg', ref_low.permute(0,2,3,1).detach().cpu().numpy()[0, :, :, :]*255)
-                cv2.imwrite('illum_high.jpg', illum_high.permute(0,2,3,1).detach().cpu().numpy()[0, :, :, :]*255)
-                cv2.imwrite('illum_low.jpg', illum_low.permute(0,2,3,1).detach().cpu().numpy()[0, :, :, :]*255)
-
-                # decomposition loss = reflectance loss of 2 reflectance map, and restoration loss 
-                decom_loss = F.mse_loss(ref_low, ref_high, reduction='none').sum() / 1000. + F.l1_loss(ref_high * illum_high, x_h, reduction='none').sum() / 1000. + F.l1_loss(ref_low * illum_low, x_l, reduction='none').sum() / 1000.# + F.l1_loss(ref_low * illum_high, x_h)
 
                 '''
                 Gradient Scaling: It's common to scale the loss by a constant factor to control the magnitude of gradients during training. Large gradients can lead to unstable training, so scaling the loss down can help stabilize the optimization process.
                 Thus "/1000." makes the gradient desent faster and stable.
                 '''
+
+                # decomposition loss = reflectance loss of 2 reflectance map, and restoration loss
+                ref_loss = F.l1_loss(ref_low, ref_high, reduction='none').sum() / 1000.
+                low_loss = F.l1_loss(ref_low * illum_low, x_l, reduction='none').sum() / 1000.
+                high_loss = F.l1_loss(ref_high * illum_high, x_h, reduction='none').sum() / 1000.
+                low_high_loss = F.l1_loss(ref_low * illum_high, x_h, reduction='none').sum() / 1000.
+                decom_loss = ref_loss + low_loss + high_loss + low_high_loss
+
                 # diffusion loss is the MSE loss between the predicted noise and the sampled noise
                 # using torch 2.0 compile booster
                 diff_loss, x_th, pred_noise = compile_trainer(illum_high.repeat(1, 3, 1, 1), idx, high=True)
-                # diff_loss, x_th, pred_noise = trainer(illum_high.repeat(1, 3, 1, 1), idx, high=True)
                 diff_loss = diff_loss.sum() / 1000. # Gradient Scaling
 
-                save_image(x_th, os.path.join(
-                './middle/diffused/', 'diff.jpg'), nrow=modelConfig["nrow"])
 
                 # reconstruction loss
-                # rec = reconstructor(x_th)
-                # using torch 2.0 compile booster
-                
-                rec = reconstructor(x_th)
-                save_image(rec, os.path.join(
-                    modelConfig["sampled_dir"], modelConfig["sampledImgName"]), nrow=modelConfig["nrow"])
+                rec_illu = reconstructor(x_th, reduce=True)
+                rec_illu_loss = F.l1_loss(rec_illu, illum_high, reduction='none').sum() / 1000.
+
+                rec_loss = F.l1_loss(rec_illu * ref_high, x_h, reduction='none').sum() / 1000.
                 # total loss = decomposition loss + diffusion loss + reconstruction loss
-                rec_loss = F.l1_loss(rec, x_h, reduction='none').sum() / 1000.
-                loss = decom_loss + diff_loss + rec_loss
+                loss = decom_loss + diff_loss + rec_illu_loss + rec_loss
                 loss.backward()
                 idx += 1
-                high = x_th.permute(0, 2, 3, 1).detach().cpu().numpy() * ref_high.permute(0, 2, 3, 1).detach().cpu().numpy() * 255
-                cv2.imwrite('high.jpg', high[0])
+
+                save_image(x_h, os.path.join(
+                    modelConfig["sampled_dir"], 'high.jpg'), nrow=modelConfig["nrow"])
+                save_image(x_l, os.path.join(
+                    modelConfig["sampled_dir"], 'low.jpg'), nrow=modelConfig["nrow"])
+                save_image(ref_high, os.path.join(
+                    modelConfig["sampled_dir"], 'ref_high.jpg'), nrow=modelConfig["nrow"])
+                save_image(ref_low, os.path.join(
+                    modelConfig["sampled_dir"], 'ref_low.jpg'), nrow=modelConfig["nrow"])
+                save_image(illum_high, os.path.join(
+                    modelConfig["sampled_dir"], 'illum_high.jpg'), nrow=modelConfig["nrow"])
+                save_image(illum_low, os.path.join(
+                    modelConfig["sampled_dir"], 'illum_low.jpg'), nrow=modelConfig["nrow"])
+                save_image(x_th, os.path.join(
+                './middle/diffused/', 'diffused_high_illum.jpg'), nrow=modelConfig["nrow"])
+                save_image(rec_illu, os.path.join(
+                    modelConfig["sampled_dir"], modelConfig["sampledImgName"]), nrow=modelConfig["nrow"])                
+                save_image(rec_illu * ref_low, os.path.join(
+                    modelConfig["sampled_dir"], 'reconstructed.jpg'), nrow=modelConfig["nrow"])
 
                 torch.nn.utils.clip_grad_norm_(
                     unet_model.parameters(), modelConfig["grad_clip"])
@@ -164,10 +180,26 @@ def train(modelConfig: Dict):
                 })
         warmUpScheduler.step()
         if e % 10 == 0:
-            torch.save(decom_model.state_dict(), os.path.join(
-                modelConfig["save_weight_dir"], 'ckp_decom_' + str(e) + ".pt"))
-            torch.save(unet_model.state_dict(), os.path.join(
-                modelConfig["save_weight_dir"], 'ckpt_' + str(e) + ".pt"))
+            decom_ckp = {
+                'epoch': e,
+                'state_dict': decom_model.state_dict(),
+                'optimizer': optimizer_decom.state_dict(),
+            }
+            diff_ckp = {
+                'epoch': e,
+                'state_dict': unet_model.state_dict(),
+                'optimizer': optimizer.state_dict(),
+            }
+            latest_decom = 'ckp_decom_' + str(e) + '.pt'
+            latest_diff = 'ckpt_diff_' + str(e) + '.pt'
+            torch.save(decom_ckp, os.path.join(
+                modelConfig["save_weight_dir"], latest_decom))
+            torch.save(diff_ckp, os.path.join(
+                modelConfig["save_weight_dir"], latest_diff))
+            os.symlink(os.path.join(modelConfig["save_weight_dir"], latest_decom), os.path.join(
+                modelConfig["save_weight_dir"], 'decom_latest.pt'))
+            os.symlink(os.path.join(modelConfig["save_weight_dir"], latest_diff), os.path.join(
+                modelConfig["save_weight_dir"], 'diff_latest.pt'))
 
 
 def eval(modelConfig: Dict):

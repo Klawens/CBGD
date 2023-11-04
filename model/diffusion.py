@@ -51,7 +51,6 @@ class GaussianDiffusionTrainer(nn.Module):
         if high:
             noise = -torch.abs(noise)   # adding black noise, worked
         bg = torch.ones_like(noise)
-        cv2.imwrite("./middle/noise/noise.jpg", (-torch.abs(noise)[0] + bg[0]).permute(1, 2, 0).cpu().numpy() * 255)
 
         # x_t = sqrt(alpha_t) * x_{t-1} + sqrt(1 - alpha_t) * eps_t
         # noise: eps_t ~ N(0, I)
@@ -81,6 +80,8 @@ class GaussianDiffusionSampler(nn.Module):
 
         self.register_buffer('posterior_var', self.betas * (1. - alphas_bar_prev) / (1. - alphas_bar))
 
+        self.reduce = nn.Conv2d(3, 1, kernel_size=1)
+
     def predict_xt_prev_mean_from_eps(self, x_t, t, eps):
         assert x_t.shape == eps.shape
         return (
@@ -94,7 +95,7 @@ class GaussianDiffusionSampler(nn.Module):
         # or replaced with
         # var = self.betas
         var = extract(var, t, x_t.shape)
-
+        # torch 2.0
         compile_eps = torch.compile(self.model)
 
         eps = compile_eps(x_t, t)
@@ -102,11 +103,12 @@ class GaussianDiffusionSampler(nn.Module):
 
         return xt_prev_mean, var
 
-    def forward(self, x_T):
+    def forward(self, x_T, reduce=False):
         """
         Algorithm 2.
         """
         x_t = x_T
+        # torch 2.0
         compile_p_mean_variance = torch.compile(self.p_mean_variance)
         for time_step in reversed(range(self.T)):
             t = x_t.new_ones([x_T.shape[0], ], dtype=torch.long) * time_step
@@ -120,5 +122,8 @@ class GaussianDiffusionSampler(nn.Module):
             x_t = mean + torch.sqrt(var) * noise
             # assert torch.isnan(x_t).int().sum() == 0, "nan in tensor."
         x_0 = x_t
+        # reduce channel
+        if reduce:
+            x_0 = self.reduce(x_0)
         return torch.clip(x_0, -1, 1)
 
