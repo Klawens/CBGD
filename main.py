@@ -13,11 +13,12 @@ def main(model_config = None):
         "attn": [2],
         "num_res_blocks": 2,
         "dropout": 0.15,
-        "lr": 5e-5,
+        "lr": 1e-4,
         "multiplier": 2.,
         "beta_1": 1e-4,
         "beta_T": 0.02,
-        "img_size": 32,
+        "img_size": 480,
+        "patch_size": 32,
         "grad_clip": 1.,
         "device": "cuda:0",
         "data_dir": "/home/klawens/LOL/",
@@ -26,16 +27,16 @@ def main(model_config = None):
         "decom_pre": "decom_pretrained.pt",
         "diff_pre": "diff_pretrained.pt",
         "resume": False,
-        # "training_load_weight": "diff_latest.pt",
-        "training_load_weight": None,
-        # "decomp_weight": "decom_latest.pt",
-        "decomp_weight": None,
-        "save_weight_dir": "./checkpoints/",
+        "training_load_weight": "diff_latest.pt",
+        # "training_load_weight": None,
+        "decomp_weight": "decom_latest.pt",
+        # "decomp_weight": None,
+        "save_weight_dir": "/home/klawens/work_0/checkpoints/",
         "test_load_weight": "ckpt_1000_.pt",
         "sampled_dir": "./SampledImgs/",
         "sampledNoisyImgName": "NoisyNoGuidenceImgs.png",
         "sampledImgName": "rec_illum.png",
-        "nrow": 3
+        "nrow": 2
         }
     if model_config is not None:
         modelConfig = model_config
