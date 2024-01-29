@@ -26,43 +26,6 @@ class SmoothLossL():
         input_R = 0.299*input_R[:, 0, :, :] + 0.587*input_R[:, 1, :, :] + 0.114*input_R[:, 2, :, :]
         input_R = torch.unsqueeze(input_R, dim=1)
         return torch.mean(self.gradient(input_I, "x") * torch.exp(-10 * self.ave_gradient(input_R, "x")) + self.gradient(input_I, "y") * torch.exp(-10 * self.ave_gradient(input_R, "y")))
-    
-
-class SmoothLossR():
-    def __init__(self):
-        super(SmoothLossR, self).__init__()
-        self.smooth_kernel_x = torch.FloatTensor([[0, 0], [-1, 1]]).view(1, 1, 2, 2).cuda()
-        self.smooth_kernel_y = torch.transpose(self.smooth_kernel_x, 2, 3)
-
-    def gradient(self, input_tensor, direction):
-        if direction == "x":
-            kernel = self.smooth_kernel_x
-        elif direction == "y":
-            kernel = self.smooth_kernel_y
-
-        # Adjusting the kernel for 3-channel input
-        channel = input_tensor.size(1)
-        kernel = kernel.repeat(channel, 1, 1, 1)
-
-        grad_out = torch.abs(F.conv2d(input_tensor, kernel, stride=1, padding=1, groups=channel))
-        return grad_out
-
-    def ave_gradient(self, input_tensor, direction):
-        return F.avg_pool2d(self.gradient(input_tensor, direction), kernel_size=3, stride=1, padding=1)
-    
-    def smooth(self, input_I, input_R):
-        # Convert input_R to grayscale
-        input_R = 0.299*input_R[:, 0, :, :] + 0.587*input_R[:, 1, :, :] + 0.114*input_R[:, 2, :, :]
-        input_R = torch.unsqueeze(input_R, dim=1)
-
-        # Compute gradients and average gradients for both input_I and input_R
-        grad_I_x = self.gradient(input_I, "x")
-        grad_I_y = self.gradient(input_I, "y")
-        ave_grad_R_x = self.ave_gradient(input_R, "x")
-        ave_grad_R_y = self.ave_gradient(input_R, "y")
-
-        # Compute the smoothness loss
-        return torch.mean(grad_I_x * torch.exp(-10 * ave_grad_R_x) + grad_I_y * torch.exp(-10 * ave_grad_R_y))
 
 
 class SSIM():
