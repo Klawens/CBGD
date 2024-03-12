@@ -123,7 +123,7 @@ def train(modelConfig: Dict):
                     recon_loss = SSIM().ssim_loss(high_ori, rec_image)
                     
                     # total loss
-                    w1, w2, w3, w4 = 1, 5, 3, 5
+                    w1, w2, w3, w4 = 0.4, 3, 3, 5
                     loss = w1 * diff_loss + w2 * loss_color + w3 * loss_light + w4 * recon_loss
                 scaler.scale(loss).backward()
                 scaler.unscale_(optimizer)
@@ -181,7 +181,7 @@ def main(model_config = None):
         "beta_1": 2.5e-5,
         "beta_T": 0.002,
         "img_size": 512,
-        "crop_size": 128,
+        "crop_size": 144,
         "grad_clip": 1.,
         "device": "cuda:0",
         "training_load_weight": None,
