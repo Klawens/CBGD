@@ -1,8 +1,3 @@
-'''
-This code is taken from the following repository:
-https://github.com/aasharma90/RetinexNet_PyTorch
-'''
-
 import torch
 import torch.nn as nn
 
