@@ -4,4 +4,4 @@
 
 &nbsp;
 ## News 💡
-- **2024.02.08**  Update CBGD. The weights and results will be uploaded. 🎈
+- **2024.09.08**  Update CBGD. The weights and results will be uploaded. 🎈
