@@ -28,4 +28,4 @@ class GradualWarmupScheduler(_LRScheduler):
             else:
                 self.after_scheduler.step(epoch - self.total_epoch)
         else:
-            return super(GradualWarmupScheduler, self).step(epoch)
+            return super(GradualWarmupScheduler, self).step(epoch) 
