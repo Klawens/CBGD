@@ -3,7 +3,7 @@ import os
 from PIL import Image
 import torch
 
-
+ 
 class CustomDataset(Dataset):
     def __init__(self, root_dir, transform=None):
         self.root_dir = root_dir
