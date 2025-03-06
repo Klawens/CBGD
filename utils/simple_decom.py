@@ -33,4 +33,4 @@ class DecomNet(nn.Module):
         R        = torch.sigmoid(outs[:, 0:3, :, :])
         L        = torch.sigmoid(outs[:, 3:4, :, :])
         return R, L
-
+ 
