@@ -2,7 +2,7 @@ import numpy as np
 import cv2
 from PIL import Image, ImageDraw, ImageFont
 import torchvision.transforms.functional as TF
-import torch
+import torch 
 
 def extract_illumination_map_batch(batch_images, sigma=30):
     """
