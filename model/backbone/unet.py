@@ -8,7 +8,7 @@ from torch.nn import functional as F
 class Swish(nn.Module):
     def forward(self, x):
         return x * torch.sigmoid(x)
-
+ 
 
 class TimeEmbedding(nn.Module):
     def __init__(self, T, d_model, dim):
