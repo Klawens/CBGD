@@ -1,10 +1,10 @@
 # Components-Balanced Guided Diffusion for Retinex-based Low-Light Image Enhancement
 
-**Shichang Liu, Xu Xu, Guanyu Xing, Yanli Liu<sup>∗ </sup>**
+**Shichang Liu, Xu Xu, Yanli Liu, Guanyu Xing<sup>∗ </sup>**
 
 &nbsp;
 ## News 💡
-- **2024.09.08**  Update CBGD. The tutorial, weights, and results will be uploaded. 🎈
+- **2025.03.01**  Update CBGD. The tutorial, weights, and results will be uploaded. 🎈
 
 &nbsp;
 ## Environment 🍱
